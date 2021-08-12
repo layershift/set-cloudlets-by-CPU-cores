@@ -1,0 +1,40 @@
+type: update
+name: Adjust cp layer cloudlet limit to 4 CPU cores
+
+onInstall:
+    - cmd [cp]: cat /proc/cpuinfo | grep processor | wc -l
+    - if (${response.responses[0].out} != 4):
+        - cmd [cp]: cat /proc/cpuinfo | grep "cpu MHz" | awk '{print $4}' | head -n1
+        - script: |
+            var MHz = ${response.responses[0].out};
+            var cloudlets = ${nodes.cp.flexibleCloudlets};
+            cloudlets = Math.floor(${response.responses[0].out}/400) * 5; # slightly underestimates core count, so aim for 5 cores initially
+            return {result:0, cloudlets: cloudlets }
+        - adjustCloudlets:
+            newLimit: ${response.cloudlets}   
+
+actions:
+    checkCores:
+        - cmd [cp]: cat /proc/cpuinfo | grep processor | wc -l        
+        - if (${response.responses[0].out} > 4):
+            - script: |
+                var cloudlets = ${nodes.cp.flexibleCloudlets};
+                cloudlets--;
+                return {result:0, cloudlets: cloudlets }
+            - adjustCloudlets:
+                newLimit: ${response.cloudlets}
+        - elif (${response.responses[0].out} < 4):
+            - script: |
+                var cloudlets = ${nodes.cp.flexibleCloudlets};
+                cloudlets++;
+                return {result:0, cloudlets: cloudlets }
+            - adjustCloudlets:
+                newLimit: ${response.cloudlets}
+            
+    adjustCloudlets:
+        - env.control.SetCloudletsCountByGroup:
+            envName: ${env.envName}
+            nodeGroup: cp
+            fixedCloudlets: ${nodes.cp.fixedCloudlets}
+            flexibleCloudlets: ${this.newLimit}
+        - checkCores
